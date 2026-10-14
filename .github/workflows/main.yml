@@ -20,10 +20,11 @@ jobs:
           java-version: '11'
       
           # Setup sonar-scanner
-      - name: Setup SonarQube
-        uses: warchant/setup-sonar-scanner@v8
-        with:
-          version: 7.2.0.5079
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_URL }}
       
         # Run sonar-scanner
       - name: SonarQube Scan
