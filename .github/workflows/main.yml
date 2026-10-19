@@ -2,6 +2,11 @@ name: hprofile Actions
 on: workflow_dispatch
 env: 
   AWS_REGION: us-east-1
+  ECR_REPOSITORY: actapp
+  ECS_SERVICE: vproapp-act-tdf-service-qaj7bwox
+  ECS_CLUSTER: vproapp-act
+  ECS_TASK_DEFINITION: aws-files/taskdeffile.json
+  CONTAINER_NAME: Main
 
 jobs:
   testing:
@@ -53,7 +58,7 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
             -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml
 
-            
+
   BUILD_AND_PUBLISH:
     name: build app
     needs: testing
@@ -83,3 +88,58 @@ jobs:
           daemon_off: false
           dockerfile: ./Dockerfile
           context: ./
+  
+
+  
+  DEPLOY_TO_ECS:
+    name: Deploy app to ECS
+    needs: BUILD_AND_PUBLISH
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Codepull
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.run_number }}
+        run: |
+          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION }}
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{secrets.REGISTRY}}/${{env.ECR_REPOSITORY}}:${{github.run_number}}
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+
+
+  
